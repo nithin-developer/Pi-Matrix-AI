@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react'
 import PiAnalysis from './components/PiAnalysis';
 import { motion } from 'framer-motion';
+import PiFractal from './components/PiFractal';
 
 function App() {
   const [darkMode, setDarkMode] = useState(false);
+  const [currentFeature, setCurrentFeature] = useState('analysis');
 
   useEffect(() => {
     if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
@@ -39,6 +41,34 @@ function App() {
                 Pi-Matrix AI
               </h1>
             </motion.div>
+            
+            <div className="flex items-center space-x-4">
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => setCurrentFeature('analysis')}
+                className={`px-4 py-2 rounded-lg transition-colors ${
+                  currentFeature === 'analysis' 
+                  ? 'bg-purple-600 text-white' 
+                  : 'text-gray-600 dark:text-gray-300 hover:bg-purple-100 dark:hover:bg-purple-900/30'
+                }`}
+              >
+                Analysis
+              </motion.button>
+              
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => setCurrentFeature('fractal')}
+                className={`px-4 py-2 rounded-lg transition-colors ${
+                  currentFeature === 'fractal' 
+                  ? 'bg-purple-600 text-white' 
+                  : 'text-gray-600 dark:text-gray-300 hover:bg-purple-100 dark:hover:bg-purple-900/30'
+                }`}
+              >
+                Fractal Art
+              </motion.button>
+            </div>
             
             <motion.button
               initial={{ opacity: 0, x: 20 }}
@@ -101,7 +131,7 @@ function App() {
           </p>
         </motion.div>
         
-        <PiAnalysis />
+        {currentFeature === 'analysis' ? <PiAnalysis /> : <PiFractal />}
       </main>
 
       <footer className="mt-auto backdrop-blur-lg bg-white/70 dark:bg-gray-900/70 border-t border-slate-200/50 dark:border-slate-700/50">
