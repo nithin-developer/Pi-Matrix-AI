@@ -10,13 +10,17 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@heroicons/react": "^2.2.0",
     "@tailwindcss/forms": "^0.5.10",
     "@tailwindcss/vite": "^4.0.17",
     "axios": "^1.8.4",
     "framer-motion": "^12.6.2",
+    "midi-parser-js": "^4.0.4",
+    "midi-player-js": "^2.0.16",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-router-dom": "^7.4.1",
+    "soundfont-player": "^0.12.0",
     "tailwindcss": "^4.0.17"
   },
   "devDependencies": {

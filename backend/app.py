@@ -19,6 +19,10 @@ from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.ndimage import zoom
+from midiutil import MIDIFile
+from scipy.io import wavfile
+from fastapi.responses import FileResponse
+import mimetypes
 
 load_dotenv()
 
@@ -39,9 +43,48 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Add MIDI mimetype
+mimetypes.add_type('audio/midi', '.mid')
+mimetypes.add_type('audio/midi', '.midi')
+
 # Serve static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+# Add this near the top of the file with other constants
+MUSIC_STYLES = {
+    'Classical': {
+        'tempo': 120,
+        'base_note': 60,  # Middle C
+        'scale': [0, 2, 4, 5, 7, 9, 11, 12],  # C Major scale
+        'duration': 0.5,
+        'instrument': 'acoustic_grand_piano',
+        'texture': 'orchestral'
+    },
+    'Jazz': {
+        'tempo': 140,
+        'base_note': 55,  # G
+        'scale': [0, 2, 3, 5, 7, 9, 10, 12],  # G Blues scale
+        'duration': 0.25,
+        'instrument': 'acoustic_jazz_guitar',
+        'texture': 'swing'
+    },
+    'Electronic': {
+        'tempo': 128,
+        'base_note': 48,  # C2
+        'scale': [0, 3, 5, 7, 10, 12],  # C minor pentatonic
+        'duration': 0.125,
+        'instrument': 'synth_pad_2_warm',
+        'texture': 'arpeggio'
+    },
+    'Ambient': {
+        'tempo': 80,
+        'base_note': 65,  # F
+        'scale': [0, 2, 5, 7, 9, 12],  # F major pentatonic
+        'duration': 1.0,
+        'instrument': 'pad_3_polysynth',
+        'texture': 'atmospheric'
+    }
+}
 
 class PiAnalysisRequest(BaseModel):
     pi_sequence: str
@@ -51,6 +94,11 @@ class PiAnalysisRequest(BaseModel):
 class FractalRequest(BaseModel):
     digit_count: int
     fractal_type: str = "Mandelbrot"
+
+
+class MusicRequest(BaseModel):
+    digit_count: int
+    music_style: str
 
 
 def get_gemini_response(prompt, pi_sequence):
@@ -401,3 +449,157 @@ async def generate_fractal(request: FractalRequest):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+def generate_midi_from_pi(pi_digits: str, style: str) -> str:
+    midi = MIDIFile(3)  # 3 tracks: melody, harmony, and texture
+    track = 0
+    harmony_track = 1
+    texture_track = 2
+    current_time = 0
+    
+    params = MUSIC_STYLES[style]
+    
+    # Initialize all tracks
+    for t in range(3):
+        midi.addTrackName(t, current_time, f"Pi {style} Track {t+1}")
+        midi.addTempo(t, current_time, params['tempo'])
+    
+    # Calculate complexity factors
+    complexity = min(len(pi_digits) / 100000, 1.0)  # 0.0 to 1.0
+    pattern_length = max(2, int(4 * complexity))
+    texture_density = max(0.2, complexity)
+    
+    # Calculate maximum duration in seconds (limit to 3 minutes)
+    MAX_DURATION = 180  # 3 minutes
+    total_notes = min(
+        int(MAX_DURATION / params['duration']),  # Max notes based on duration
+        len(pi_digits) // pattern_length  # Max notes based on available digits
+    )
+    
+    # Adjust base velocity for louder sound
+    BASE_VELOCITY = 90  # Increased from 60
+    HARMONY_REDUCTION = 10  # Reduced from 20-30
+    
+    # Process digits in segments for different musical elements
+    for i in range(0, total_notes * pattern_length, pattern_length):
+        if current_time >= MAX_DURATION:
+            break
+            
+        segment = pi_digits[i:i + pattern_length]
+        if len(segment) < pattern_length:
+            break
+            
+        segment_value = int(segment)
+        base_position = segment_value % len(params['scale'])
+        base_note = params['base_note'] + params['scale'][base_position]
+        
+        # Dynamic parameters with increased velocity
+        velocity = BASE_VELOCITY + (segment_value % 30)  # Increased range
+        note_duration = params['duration'] * (0.5 + (segment_value % 3) * 0.25)
+        
+        # Add main melody with full velocity
+        midi.addNote(track, 0, base_note, current_time, note_duration, velocity)
+        
+        # Style-specific textures and harmonies with adjusted velocities
+        if style == 'Classical':
+            if segment_value % 4 < 2:
+                for interval in [4, 7]:  # Third and fifth
+                    midi.addNote(harmony_track, 0, base_note + interval, 
+                               current_time, note_duration, velocity - HARMONY_REDUCTION)
+                if segment_value % 3 == 0:
+                    midi.addNote(texture_track, 0, base_note - 12, 
+                               current_time, note_duration * 2, velocity - HARMONY_REDUCTION)
+                    
+        elif style == 'Jazz':
+            # Add jazz voicings
+            if segment_value % 3 == 0:
+                for interval in [7, 10, 14]:  # Seventh, ninth, thirteenth
+                    midi.addNote(harmony_track, 0, base_note + interval,
+                               current_time, note_duration * 1.5, velocity - 15)
+            # Add walking bass texture
+            bass_note = base_note - 24
+            midi.addNote(texture_track, 0, bass_note,
+                        current_time, note_duration, velocity - 10)
+                        
+        elif style == 'Electronic':
+            # Add electronic arpeggios
+            for step in range(4):
+                if segment_value % (step + 2) == 0:
+                    arp_note = base_note + params['scale'][(base_position + step) % len(params['scale'])]
+                    midi.addNote(harmony_track, 0, arp_note,
+                               current_time + step * note_duration * 0.25,
+                               note_duration * 0.25, velocity - 10)
+            # Add rhythmic texture
+            if segment_value % 4 == 0:
+                midi.addNote(texture_track, 0, base_note + 12,
+                           current_time, note_duration * 0.5, velocity - 20)
+                           
+        elif style == 'Ambient':
+            # Add atmospheric pads
+            if segment_value % 5 == 0:
+                for interval in [7, 12, 16]:  # Fifth, octave, and fourth above
+                    midi.addNote(harmony_track, 0, base_note + interval,
+                               current_time, note_duration * 2, velocity - 25)
+            # Add subtle texture
+            if segment_value % 6 == 0:
+                midi.addNote(texture_track, 0, base_note + 24,
+                           current_time, note_duration * 4, velocity - 40)
+        
+        current_time += note_duration
+        if current_time >= MAX_DURATION:
+            break
+
+    # Save MIDI file
+    timestamp = int(time.time())
+    midi_filename = f"static/pi_music_{timestamp}.mid"
+    os.makedirs("static", exist_ok=True)
+    
+    with open(midi_filename, "wb") as f:
+        midi.writeFile(f)
+    
+    return midi_filename
+
+@app.post("/generate-music")
+async def generate_music(request: MusicRequest):
+    try:
+        if request.digit_count < 100 or request.digit_count > 100000:
+            raise HTTPException(
+                status_code=400,
+                detail="Digit count must be between 100 and 100,000"
+            )
+            
+        # Get pi digits
+        pi_digits = get_pi_digits(request.digit_count)
+        
+        # Generate MIDI file
+        midi_file = generate_midi_from_pi(pi_digits, request.music_style)
+        
+        style_config = MUSIC_STYLES.get(request.music_style, MUSIC_STYLES['Classical'])
+        
+        # Calculate actual duration (limited to 3 minutes)
+        total_duration = min(180, (len(pi_digits) / 2) * style_config['duration'])
+        
+        return {
+            "generated_audio_url": f"http://localhost:8000/static/{os.path.basename(midi_file)}",
+            "pi_applied_modifications": {
+                "note_sequence": f"Using {request.digit_count:,} digits",
+                "style": request.music_style,
+                "tempo": f"{style_config['tempo']} BPM",
+                "scale": f"{request.music_style} Scale",
+                "instrument": style_config['instrument'].replace('_', ' ').title(),
+                "duration": f"{(total_duration / 60):,.1f} minutes"
+            }
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/static/{filename}")
+async def get_static_file(filename: str):
+    file_path = f"static/{filename}"
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(
+        file_path,
+        media_type=mimetypes.guess_type(filename)[0] or 'application/octet-stream'
+    )
