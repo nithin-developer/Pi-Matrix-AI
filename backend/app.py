@@ -10,23 +10,17 @@ import google.generativeai as genai
 import json
 import time
 import glob
-from PIL import Image, ImageEnhance, ImageFilter
+from PIL import Image, ImageEnhance
 import sqlite3
-from pathlib import Path
-import math
-from decimal import Decimal, getcontext
-from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.ndimage import zoom
 from midiutil import MIDIFile
-from scipy.io import wavfile
 from fastapi.responses import FileResponse
 import mimetypes
 
 load_dotenv()
 
-# Configure Gemini API
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel(
@@ -34,52 +28,48 @@ model = genai.GenerativeModel(
 
 app = FastAPI()
 
-# Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # React dev server
+    allow_origins=["http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Add MIDI mimetype
 mimetypes.add_type('audio/midi', '.mid')
 mimetypes.add_type('audio/midi', '.midi')
 
-# Serve static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# Add this near the top of the file with other constants
 MUSIC_STYLES = {
     'Classical': {
         'tempo': 120,
-        'base_note': 60,  # Middle C
-        'scale': [0, 2, 4, 5, 7, 9, 11, 12],  # C Major scale
+        'base_note': 60,
+        'scale': [0, 2, 4, 5, 7, 9, 11, 12],
         'duration': 0.5,
         'instrument': 'acoustic_grand_piano',
         'texture': 'orchestral'
     },
     'Jazz': {
         'tempo': 140,
-        'base_note': 55,  # G
-        'scale': [0, 2, 3, 5, 7, 9, 10, 12],  # G Blues scale
+        'base_note': 55,
+        'scale': [0, 2, 3, 5, 7, 9, 10, 12],
         'duration': 0.25,
         'instrument': 'acoustic_jazz_guitar',
         'texture': 'swing'
     },
     'Electronic': {
         'tempo': 128,
-        'base_note': 48,  # C2
-        'scale': [0, 3, 5, 7, 10, 12],  # C minor pentatonic
+        'base_note': 48,
+        'scale': [0, 3, 5, 7, 10, 12],
         'duration': 0.125,
         'instrument': 'synth_pad_2_warm',
         'texture': 'arpeggio'
     },
     'Ambient': {
         'tempo': 80,
-        'base_note': 65,  # F
-        'scale': [0, 2, 5, 7, 9, 12],  # F major pentatonic
+        'base_note': 65,
+        'scale': [0, 2, 5, 7, 9, 12],
         'duration': 1.0,
         'instrument': 'pad_3_polysynth',
         'texture': 'atmospheric'
@@ -163,12 +153,10 @@ def analyze_frequency_distribution(pi_sequence):
     """
 
     result = get_gemini_response(prompt, pi_sequence)
-    if not result:
-        # Fallback to basic analysis if API fails
+    if not result or not isinstance(result, dict):
         digit_count = {str(i): pi_sequence.count(str(i)) for i in range(10)}
         total_digits = len(pi_sequence)
-        distribution = {k: (v / total_digits) * 100 for k,
-                        v in digit_count.items()}
+        distribution = {k: (v / total_digits) * 100 for k, v in digit_count.items()}
         return {
             "digit_distribution": distribution,
             "insights": ["Basic frequency analysis performed"],
@@ -201,10 +189,10 @@ def analyze_pattern_detection(pi_sequence):
     """
 
     result = get_gemini_response(prompt, pi_sequence)
-    if not result:
+    if not result or not isinstance(result, dict):
         return {
             "common_patterns": ["1415"],
-            "pattern_frequencies": {"1415": "N/A"},
+            "pattern_frequencies": {"1415": 0.1},
             "interesting_sequences": [],
             "mathematical_significance": "Basic pattern detection only"
         }
@@ -235,11 +223,11 @@ def analyze_anomaly_detection(pi_sequence):
     """
 
     result = get_gemini_response(prompt, pi_sequence)
-    if not result:
+    if not result or not isinstance(result, dict):
         return {
             "anomalies": ["No significant anomalies detected"],
             "statistical_deviations": {},
-            "confidence_scores": {},
+            "confidence_scores": {"baseline": 0.0},
             "analysis_summary": "Basic anomaly detection only"
         }
     return result
@@ -250,12 +238,12 @@ async def analyze_pi(request: PiAnalysisRequest):
     try:
         if request.digit_count < 100 or request.digit_count > 10_000_000:
             raise HTTPException(
-                status_code=400, 
+                status_code=400,
                 detail="Digit count must be between 100 and 10,000,000"
             )
 
         pi_sequence = get_pi_digits(request.digit_count)
-        
+
         if request.analysis_type == "Frequency Distribution":
             result = analyze_frequency_distribution(pi_sequence)
             plot_data = result.get("digit_distribution", {})
@@ -267,19 +255,17 @@ async def analyze_pi(request: PiAnalysisRequest):
             plot_data = result.get("confidence_scores", {})
         else:
             raise HTTPException(
-                status_code=400, 
+                status_code=400,
                 detail="Invalid analysis type"
             )
 
-        # Generate visualization
         plt.figure(figsize=(12, 6))
         if plot_data:
             plt.bar(plot_data.keys(), plot_data.values())
             plt.title(f"{request.analysis_type} of π Digits")
             plt.xlabel("Elements")
             plt.ylabel("Frequency/Score")
-            
-            # Save plot
+
             timestamp = int(time.time())
             filename = f"analysis_{timestamp}.png"
             plt.savefig(f"static/{filename}", bbox_inches='tight', dpi=300)
@@ -292,14 +278,11 @@ async def analyze_pi(request: PiAnalysisRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# Function to generate unique Mandelbrot fractals using π digits
-
 
 def generate_mandelbrot(pi_digits, width=800, height=600, max_iter=200):
     x_min, x_max = -2, 1
     y_min, y_max = -1.5, 1.5
 
-    # Dynamically adjust range using π digits
     if len(pi_digits) > 10:
         x_min += int(pi_digits[5]) * 0.1
         x_max -= int(pi_digits[6]) * 0.1
@@ -312,7 +295,6 @@ def generate_mandelbrot(pi_digits, width=800, height=600, max_iter=200):
     z = c
     divtime = max_iter + np.zeros(z.shape, dtype=int)
 
-    # Use multiple π digits for more unique colors
     color_factors = [int(d) for d in pi_digits[:5]]
 
     for i in range(max_iter):
@@ -322,14 +304,11 @@ def generate_mandelbrot(pi_digits, width=800, height=600, max_iter=200):
         divtime[div_now] = i
         z[diverge] = 2
 
-    # Create color mapping using π digits
     r = (divtime * color_factors[0]) % 256
     g = (divtime * color_factors[1]) % 256
     b = (divtime * color_factors[2]) % 256
 
     return np.dstack((r, g, b))
-
-# Function to generate unique Julia fractals using π digits
 
 
 def generate_julia(pi_digits, width=800, height=600, max_iter=200):
@@ -338,32 +317,26 @@ def generate_julia(pi_digits, width=800, height=600, max_iter=200):
     X, Y = np.meshgrid(x, y)
     Z = X + Y*1j
 
-    # Use π digits to generate complex parameter for the Julia set
     c = complex(float(pi_digits[:2])/50 - 1, float(pi_digits[2:4])/50 - 1)
 
-    # Initialize output array
     output = np.zeros((height, width, 3), dtype=np.uint8)
 
-    # Use π digits for coloring
     color_factors = [int(d) for d in pi_digits[4:9]]
 
     for i in range(max_iter):
         mask = np.abs(Z) <= 2
         Z[mask] = Z[mask]**2 + c
 
-        # Color based on iteration count and π digits
         output[mask] = np.array([
             (i * color_factors[0]) % 256,
             (i * color_factors[1]) % 256,
             (i * color_factors[2]) % 256
         ])
 
-    # Add zoom effect based on π digits
     if len(pi_digits) > 9:
         zoom_factor = float(pi_digits[9:11]) / 50 + 1
         output = zoom(output, (zoom_factor, zoom_factor, 1), order=0)
 
-        # Crop to original size
         h, w = output.shape[:2]
         start_h = (h - height) // 2
         start_w = (w - width) // 2
@@ -371,30 +344,25 @@ def generate_julia(pi_digits, width=800, height=600, max_iter=200):
 
     return output
 
-# Function to enhance and save images
-
 
 def enhance_and_save(image_array, filename):
     image = Image.fromarray(np.uint8(image_array))
 
-    # Apply enhancements
     enhancer = ImageEnhance.Contrast(image)
-    image = enhancer.enhance(1.5)  # Increase contrast
+    image = enhancer.enhance(1.5)
 
     enhancer = ImageEnhance.Color(image)
-    image = enhancer.enhance(1.3)  # Boost colors
+    image = enhancer.enhance(1.3)
 
     enhancer = ImageEnhance.Sharpness(image)
-    image = enhancer.enhance(2.0)  # Sharpen details
+    image = enhancer.enhance(2.0)
 
-    # Remove old fractal files
     for old_file in glob.glob("static/fractal_*.png"):
         try:
             os.remove(old_file)
         except:
             pass
 
-    # Save enhanced image
     os.makedirs("static", exist_ok=True)
     image.save(f"static/{filename}")
     return filename
@@ -409,7 +377,7 @@ async def generate_fractal(request: FractalRequest):
                 detail="Digit count must be between 100 and 10,000,000"
             )
         try:
-            # Get pi digits with progress tracking
+
             pi_digits = get_pi_digits(request.digit_count)
         except Exception as e:
             raise HTTPException(
@@ -417,7 +385,6 @@ async def generate_fractal(request: FractalRequest):
                 detail=f"Error computing π digits: {str(e)}"
             )
 
-        # Generate fractal
         if request.fractal_type == "Mandelbrot":
             fractal_array = generate_mandelbrot(pi_digits)
         elif request.fractal_type == "Julia":
@@ -425,7 +392,6 @@ async def generate_fractal(request: FractalRequest):
         else:
             raise HTTPException(status_code=400, detail="Invalid fractal type")
 
-        # Save and enhance image
         timestamp = int(time.time())
         filename = f"fractal_{timestamp}.png"
         saved_filename = enhance_and_save(fractal_array, filename)
@@ -447,7 +413,7 @@ async def generate_fractal(request: FractalRequest):
 
 
 def generate_midi_from_pi(pi_digits: str, style: str) -> str:
-    midi = MIDIFile(3)  # 3 tracks: melody, harmony, and texture
+    midi = MIDIFile(3)
     track = 0
     harmony_track = 1
     texture_track = 2
@@ -455,28 +421,23 @@ def generate_midi_from_pi(pi_digits: str, style: str) -> str:
 
     params = MUSIC_STYLES[style]
 
-    # Initialize all tracks
     for t in range(3):
         midi.addTrackName(t, current_time, f"Pi {style} Track {t+1}")
         midi.addTempo(t, current_time, params['tempo'])
 
-    # Calculate complexity factors
-    complexity = min(len(pi_digits) / 100000, 1.0)  # 0.0 to 1.0
+    complexity = min(len(pi_digits) / 100000, 1.0)
     pattern_length = max(2, int(4 * complexity))
     texture_density = max(0.2, complexity)
 
-    # Calculate maximum duration in seconds (limit to 3 minutes)
-    MAX_DURATION = 180  # 3 minutes
+    MAX_DURATION = 180
     total_notes = min(
-        int(MAX_DURATION / params['duration']),  # Max notes based on duration
-        len(pi_digits) // pattern_length  # Max notes based on available digits
+        int(MAX_DURATION / params['duration']),
+        len(pi_digits) // pattern_length
     )
 
-    # Adjust base velocity for louder sound
-    BASE_VELOCITY = 90  # Increased from 60
-    HARMONY_REDUCTION = 10  # Reduced from 20-30
+    BASE_VELOCITY = 90
+    HARMONY_REDUCTION = 10
 
-    # Process digits in segments for different musical elements
     for i in range(0, total_notes * pattern_length, pattern_length):
         if current_time >= MAX_DURATION:
             break
@@ -489,18 +450,15 @@ def generate_midi_from_pi(pi_digits: str, style: str) -> str:
         base_position = segment_value % len(params['scale'])
         base_note = params['base_note'] + params['scale'][base_position]
 
-        # Dynamic parameters with increased velocity
-        velocity = BASE_VELOCITY + (segment_value % 30)  # Increased range
+        velocity = BASE_VELOCITY + (segment_value % 30)
         note_duration = params['duration'] * (0.5 + (segment_value % 3) * 0.25)
 
-        # Add main melody with full velocity
         midi.addNote(track, 0, base_note, current_time,
                      note_duration, velocity)
 
-        # Style-specific textures and harmonies with adjusted velocities
         if style == 'Classical':
             if segment_value % 4 < 2:
-                for interval in [4, 7]:  # Third and fifth
+                for interval in [4, 7]:
                     midi.addNote(harmony_track, 0, base_note + interval,
                                  current_time, note_duration, velocity - HARMONY_REDUCTION)
                 if segment_value % 3 == 0:
@@ -508,18 +466,18 @@ def generate_midi_from_pi(pi_digits: str, style: str) -> str:
                                  current_time, note_duration * 2, velocity - HARMONY_REDUCTION)
 
         elif style == 'Jazz':
-            # Add jazz voicings
+
             if segment_value % 3 == 0:
-                for interval in [7, 10, 14]:  # Seventh, ninth, thirteenth
+                for interval in [7, 10, 14]:
                     midi.addNote(harmony_track, 0, base_note + interval,
                                  current_time, note_duration * 1.5, velocity - 15)
-            # Add walking bass texture
+
             bass_note = base_note - 24
             midi.addNote(texture_track, 0, bass_note,
                          current_time, note_duration, velocity - 10)
 
         elif style == 'Electronic':
-            # Add electronic arpeggios
+
             for step in range(4):
                 if segment_value % (step + 2) == 0:
                     arp_note = base_note + \
@@ -528,18 +486,18 @@ def generate_midi_from_pi(pi_digits: str, style: str) -> str:
                     midi.addNote(harmony_track, 0, arp_note,
                                  current_time + step * note_duration * 0.25,
                                  note_duration * 0.25, velocity - 10)
-            # Add rhythmic texture
+
             if segment_value % 4 == 0:
                 midi.addNote(texture_track, 0, base_note + 12,
                              current_time, note_duration * 0.5, velocity - 20)
 
         elif style == 'Ambient':
-            # Add atmospheric pads
+
             if segment_value % 5 == 0:
-                for interval in [7, 12, 16]:  # Fifth, octave, and fourth above
+                for interval in [7, 12, 16]:
                     midi.addNote(harmony_track, 0, base_note + interval,
                                  current_time, note_duration * 2, velocity - 25)
-            # Add subtle texture
+
             if segment_value % 6 == 0:
                 midi.addNote(texture_track, 0, base_note + 24,
                              current_time, note_duration * 4, velocity - 40)
@@ -548,7 +506,6 @@ def generate_midi_from_pi(pi_digits: str, style: str) -> str:
         if current_time >= MAX_DURATION:
             break
 
-    # Save MIDI file
     timestamp = int(time.time())
     midi_filename = f"static/pi_music_{timestamp}.mid"
     os.makedirs("static", exist_ok=True)
@@ -568,16 +525,13 @@ async def generate_music(request: MusicRequest):
                 detail="Digit count must be between 100 and 100,000"
             )
 
-        # Get pi digits
         pi_digits = get_pi_digits(request.digit_count)
 
-        # Generate MIDI file
         midi_file = generate_midi_from_pi(pi_digits, request.music_style)
 
         style_config = MUSIC_STYLES.get(
             request.music_style, MUSIC_STYLES['Classical'])
 
-        # Calculate actual duration (limited to 3 minutes)
         total_duration = min(180, (len(pi_digits) / 2)
                              * style_config['duration'])
 
