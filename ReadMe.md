@@ -33,6 +33,10 @@ A sophisticated web application that explores the mathematical beauty of π (pi)
 - **Pi Facts**: Rolling educational facts about π
 - **Image Capture**: Save filtered photos instantly
 
+## 🎥 Demo
+
+[Watch Demo Video](https://www.youtube.com/watch?v=M5JB2dwsXDs&ab_channel=BuildWithNithin)
+
 ## 🛠️ Tech Stack
 
 ### Frontend
